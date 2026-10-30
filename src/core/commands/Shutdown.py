@@ -29,7 +29,7 @@ class ShutdownCommand(Command):
         })
 
     @classmethod
-    async def execute(cls, args: list[str]) -> str:
+    async def execute(cls, args: list[str], server=None) -> str:
         """Executed client-side: triggers the native Windows shutdown command."""
         delay = "0"
         if args and args[0].isdigit():
