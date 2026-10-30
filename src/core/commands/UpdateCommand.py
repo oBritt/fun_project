@@ -32,11 +32,16 @@ class UpdateCommand(Command):
 
     @classmethod
     async def execute(cls, args: list[str], server=None) -> str:
-        """Runs git pull and schedules a self-restart for the client."""
+        """Runs git pull, updates dependencies from the project root, and schedules self-restart."""
         try:
-            # 1. Run git pull asynchronously
+            # Determine project root (update.py is in src/core/commands/, so root is 3 levels up)
+            project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+            req_path = os.path.join(project_dir, "requirements.txt")
+
+            # 1. Run git pull asynchronously inside the project root directory
             process = await asyncio.create_subprocess_exec(
                 "git", "pull",
+                cwd=project_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -46,17 +51,20 @@ class UpdateCommand(Command):
             if process.returncode != 0:
                 return f"Git pull failed:\n{output}"
 
-            # 2. Run pip install -r requirements.txt using the current environment's python interpreter
-            pip_process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "pip", "install", "-r", "requirements.txt",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            pip_stdout, pip_stderr = await pip_process.communicate()
-            pip_output = pip_stdout.decode().strip() or pip_stderr.decode().strip()
+            # 2. Run pip install if requirements.txt exists
+            pip_output = "No requirements.txt found, skipped pip install."
+            if os.path.exists(req_path):
+                pip_process = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "pip", "install", "-r", req_path,
+                    cwd=project_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                pip_stdout, pip_stderr = await pip_process.communicate()
+                pip_output = pip_stdout.decode().strip() or pip_stderr.decode().strip()
 
-            if pip_process.returncode != 0:
-                return f"Git pull succeeded, but pip install failed:\n{pip_output}"
+                if pip_process.returncode != 0:
+                    return f"Git pull succeeded, but pip install failed:\n{pip_output}"
 
             # 3. Schedule a delayed restart so the client can send the response back first
             async def restart_client():
