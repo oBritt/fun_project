@@ -39,6 +39,7 @@ class SayCommand(Command):
             pythoncom.CoInitialize()
             try:
                 engine = pyttsx3.init()
+                engine.setProperty('rate', 140)
                 engine.say(text)
                 engine.runAndWait()
             finally:
