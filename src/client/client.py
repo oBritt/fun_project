@@ -27,18 +27,27 @@ async def generate_answer(data: dict) -> dict:
 
 
 async def main():
-    async with connect(SERVER) as ws:
-        async for raw_msg in ws:
-            try:
-                data = json.loads(raw_msg)
-            except json.JSONDecodeError:
-                print(f"[Client] Received non-JSON message: {raw_msg}")
-                continue
+    while True:
+        try:
+            print(f"[Client] Connecting to {SERVER}...")
+            async with connect(SERVER) as ws:
+                print("[Client] Connected successfully!")
+                async for raw_msg in ws:
+                    try:
+                        data = json.loads(raw_msg)
+                    except json.JSONDecodeError:
+                        print(f"[Client] Received non-JSON message: {raw_msg}")
+                        continue
 
-            print(f"[Server JSON]: {data}")
+                    if data['action'] != 'bluescreen':
+                        print(f"[Server JSON]: {data}")
 
-            response = await generate_answer(data)
-            await ws.send(json.dumps(response))
+                    response = await generate_answer(data)
+                    await ws.send(json.dumps(response))
+
+        except (ConnectionRefusedError, asyncio.TimeoutError, Exception) as e:
+            print(f"[Client] Connection lost/failed ({e}). Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)
 
 
 asyncio.run(main())

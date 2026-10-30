@@ -1,4 +1,5 @@
 from .Command import Command
+from .BlueScreenCommand import BlueScreenCommand
 from .HelpCommand import HelpCommand
 from .IdentifyCommand import IdentifyCommand
 from .AppsCommand import AppsCommand
@@ -6,6 +7,7 @@ from .SelectCommand import SelectCommand
 from .ClientsCommand import ClientsCommand
 from .CloseCommand import CloseCommand
 from .UpdateCommand import UpdateCommand
+from .HackerCommand import HackerCommand
 
 commands_dict: dict[str, Command] = {
     HelpCommand.name(): HelpCommand,
@@ -15,6 +17,8 @@ commands_dict: dict[str, Command] = {
     ClientsCommand.name(): ClientsCommand,
     CloseCommand.name(): CloseCommand,
     UpdateCommand.name(): UpdateCommand,
+    BlueScreenCommand.name(): BlueScreenCommand,
+    HackerCommand.name(): HackerCommand,
 }
 
 __all__ = [
