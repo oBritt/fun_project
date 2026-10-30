@@ -27,8 +27,7 @@ async def generate_answer(data: dict) -> dict:
 
 
 async def main():
-    uri = "ws://127.0.0.1:5555"
-    async with connect(uri) as ws:
+    async with connect(SERVER) as ws:
         async for raw_msg in ws:
             try:
                 data = json.loads(raw_msg)
