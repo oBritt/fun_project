@@ -1,13 +1,45 @@
 import asyncio
 from websockets.asyncio.client import connect
+import json
+
+from src.core.commands import commands_dict
 
 SERVER = "wss://liger-tops-raccoon.ngrok-free.app"
 
+
+async def generate_answer(data: dict) -> dict:
+    action = data.get("action")
+    args = data.get("args", [])
+
+    cls = commands_dict.get(action)
+    if cls is None:
+        return {"status": "error", "message": f"Unknown action: {action}"}
+
+    try:
+        if not cls.validate_args(args):
+            return {"status": "error", "message": "Invalid arguments"}
+
+        res = await cls.execute(args)
+        return {"status": "success", "action": action, "result": res}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 async def main():
-    async with connect(SERVER) as ws:
-        print("Connected to server")
-        await ws.send("Hello from client")
-        async for msg in ws:
-            print("Server says:", msg)
+    uri = "ws://127.0.0.1:5555"
+    async with connect(uri) as ws:
+        async for raw_msg in ws:
+            try:
+                data = json.loads(raw_msg)
+            except json.JSONDecodeError:
+                print(f"[Client] Received non-JSON message: {raw_msg}")
+                continue
+
+            print(f"[Server JSON]: {data}")
+
+            response = await generate_answer(data)
+            await ws.send(json.dumps(response))
+
 
 asyncio.run(main())
