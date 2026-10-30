@@ -3,6 +3,7 @@ from .BlueScreenCommand import BlueScreenCommand
 from .HelpCommand import HelpCommand
 from .IdentifyCommand import IdentifyCommand
 from .AppsCommand import AppsCommand
+from .SayCommand import SayCommand
 from .SelectCommand import SelectCommand
 from .ClientsCommand import ClientsCommand
 from .CloseCommand import CloseCommand
@@ -19,6 +20,7 @@ commands_dict: dict[str, Command] = {
     UpdateCommand.name(): UpdateCommand,
     BlueScreenCommand.name(): BlueScreenCommand,
     HackerCommand.name(): HackerCommand,
+    SayCommand.name(): SayCommand,
 }
 
 __all__ = [

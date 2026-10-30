@@ -3,7 +3,7 @@ import pyttsx3
 from src.core.commands import Command
 
 
-class SpeakCommand(Command):
+class SayCommand(Command):
 
     @classmethod
     def name(cls) -> str:
