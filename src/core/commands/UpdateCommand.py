@@ -34,20 +34,31 @@ class UpdateCommand(Command):
     async def execute(cls, args: list[str], server=None) -> str:
         """Runs git pull and schedules a self-restart for the client."""
         try:
-            # Run git pull asynchronously
+            # 1. Run git pull asynchronously
             process = await asyncio.create_subprocess_exec(
                 "git", "pull",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
-
             output = stdout.decode().strip() or stderr.decode().strip()
 
             if process.returncode != 0:
                 return f"Git pull failed:\n{output}"
 
-            # Schedule a delayed restart so the client can send the response back first
+            # 2. Run pip install -r requirements.txt using the current environment's python interpreter
+            pip_process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pip", "install", "-r", "requirements.txt",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            pip_stdout, pip_stderr = await pip_process.communicate()
+            pip_output = pip_stdout.decode().strip() or pip_stderr.decode().strip()
+
+            if pip_process.returncode != 0:
+                return f"Git pull succeeded, but pip install failed:\n{pip_output}"
+
+            # 3. Schedule a delayed restart so the client can send the response back first
             async def restart_client():
                 await asyncio.sleep(2)
                 python = sys.executable
@@ -56,7 +67,7 @@ class UpdateCommand(Command):
 
             asyncio.create_task(restart_client())
 
-            return f"Git pull successful:\n{output}\n\nRestarting client..."
+            return f"Update successful!\nGit:\n{output}\n\nPip:\n{pip_output}\n\nRestarting client..."
 
         except Exception as e:
             return f"Failed to update: {str(e)}"
