@@ -1,3 +1,4 @@
+import asyncio
 import json
 import pyttsx3
 from src.core.commands import Command
@@ -31,11 +32,21 @@ class SayCommand(Command):
     @classmethod
     async def execute(cls, args: list[str], server=None) -> str:
         text = " ".join(args)
+
+        def _speak_sync():
+            import pythoncom
+            # Initialize COM for Windows SAPI5 threading
+            pythoncom.CoInitialize()
+            try:
+                engine = pyttsx3.init()
+                engine.say(text)
+                engine.runAndWait()
+            finally:
+                pythoncom.CoUninitialize()
+
         try:
-            # Initialize text-to-speech engine and speak out loud
-            engine = pyttsx3.init()
-            engine.say(text)
-            engine.runAndWait()
+            # Run the blocking TTS code in a separate thread so it doesn't freeze the client loop
+            await asyncio.to_thread(_speak_sync)
             return f"Said aloud: '{text}'"
         except Exception as e:
             return f"Failed to speak: {str(e)}"
