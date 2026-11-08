@@ -19,6 +19,8 @@ VK_VOLUME_DOWN = 0xAE
 VK_VOLUME_UP = 0xAF
 KEYEVENTF_KEYUP = 0x0002
 
+USAGE = "Usage: alarm [seconds 0-60] [volume 1-100]  (seconds 0 = only set volume, no sound)"
+
 
 def _make_siren_wav(path: str, seconds: int) -> None:
     """Generates a full-amplitude two-tone siren as a WAV file."""
@@ -35,24 +37,17 @@ def _make_siren_wav(path: str, seconds: int) -> None:
         w.writeframes(samples.tobytes())
 
 
-def _volume_via_pycaw(volume: int) -> None:
-    import comtypes
+def _get_endpoint():
+    """Returns the pycaw volume endpoint of the default speakers (COM must be initialised)."""
     from comtypes import CLSCTX_ALL
     from ctypes import POINTER, cast
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
-    comtypes.CoInitialize()
-    try:
-        speakers = AudioUtilities.GetSpeakers()
-        if hasattr(speakers, "EndpointVolume"):  # newer pycaw
-            endpoint = speakers.EndpointVolume
-        else:  # older pycaw
-            interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            endpoint = cast(interface, POINTER(IAudioEndpointVolume))
-        endpoint.SetMute(0, None)
-        endpoint.SetMasterVolumeLevelScalar(volume / 100.0, None)
-    finally:
-        comtypes.CoUninitialize()
+    speakers = AudioUtilities.GetSpeakers()
+    if hasattr(speakers, "EndpointVolume"):  # newer pycaw
+        return speakers.EndpointVolume
+    interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)  # older pycaw
+    return cast(interface, POINTER(IAudioEndpointVolume))
 
 
 def _press(vk: int, times: int) -> None:
@@ -64,20 +59,12 @@ def _press(vk: int, times: int) -> None:
 
 
 def _volume_via_keys(volume: int) -> None:
-    """Fallback without dependencies. Each key press changes volume by 2%."""
+    """Fallback without pycaw. Each key press changes volume by 2%. Cannot read the old volume."""
     _press(VK_VOLUME_DOWN, 55)  # go to 0 first
     _press(VK_VOLUME_UP, max(1, round(volume / 2)))  # also unmutes
 
 
-def _set_volume(volume: int) -> None:
-    try:
-        _volume_via_pycaw(volume)
-    except Exception:
-        _volume_via_keys(volume)
-
-
-def _run_alarm(seconds: int, volume: int) -> None:
-    _set_volume(volume)
+def _play_siren(seconds: int) -> None:
     fd, path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
@@ -90,13 +77,63 @@ def _run_alarm(seconds: int, volume: int) -> None:
             pass
 
 
+def _run_alarm(seconds: int, volume: int) -> str:
+    """Returns a status message."""
+    try:
+        import comtypes
+        comtypes.CoInitialize()
+    except Exception:
+        comtypes = None
+
+    try:
+        endpoint = _get_endpoint() if comtypes else None
+    except Exception:
+        endpoint = None
+
+    try:
+        # --- pycaw available: exact control, restore possible ---
+        if endpoint is not None:
+            orig_volume = endpoint.GetMasterVolumeLevelScalar()
+            orig_mute = endpoint.GetMute()
+
+            endpoint.SetMute(0, None)
+            endpoint.SetMasterVolumeLevelScalar(volume / 100.0, None)
+
+            if seconds == 0:
+                return f"Volume set to {volume}%."
+
+            try:
+                _play_siren(seconds)
+            finally:
+                endpoint.SetMasterVolumeLevelScalar(orig_volume, None)
+                endpoint.SetMute(orig_mute, None)
+            return (
+                f"Alarm played for {seconds} seconds at {volume}%. "
+                f"Volume restored to {round(orig_volume * 100)}%"
+                f"{' (muted)' if orig_mute else ''}."
+            )
+
+        # --- fallback: no pycaw, cannot restore ---
+        _volume_via_keys(volume)
+        if seconds == 0:
+            return f"Volume set to about {volume}% (pycaw not installed)."
+        _play_siren(seconds)
+        return (
+            f"Alarm played for {seconds} seconds at about {volume}%. "
+            "Original volume NOT restored (install pycaw)."
+        )
+    finally:
+        if comtypes is not None:
+            comtypes.CoUninitialize()
+
+
 def _parse_args(args: list[str]) -> tuple[int, int] | None:
     """Returns (seconds, volume) or None if invalid."""
     if len(args) > 2 or not all(a.isdigit() for a in args):
         return None
     seconds = int(args[0]) if len(args) >= 1 else DEFAULT_SECONDS
     volume = int(args[1]) if len(args) == 2 else DEFAULT_VOLUME
-    if not (1 <= seconds <= MAX_SECONDS and 1 <= volume <= 100):
+    if not (0 <= seconds <= MAX_SECONDS and 1 <= volume <= 100):
         return None
     return seconds, volume
 
@@ -110,8 +147,8 @@ class AlarmCommand(Command):
     @classmethod
     def description(cls) -> str:
         return (
-            "Unmute and play a loud siren. "
-            "Usage: alarm [seconds=5] [volume=100]"
+            "Unmute and play a loud siren, then restore the old volume. "
+            "Usage: alarm [seconds=5] [volume=100]. Seconds 0 = only set volume and keep it."
         )
 
     @classmethod
@@ -133,10 +170,9 @@ class AlarmCommand(Command):
     async def execute(cls, args: list[str], server=None) -> str:
         parsed = _parse_args(args)
         if parsed is None:
-            return "Usage: alarm [seconds 1-60] [volume 1-100]"
+            return USAGE
         seconds, volume = parsed
         try:
-            await asyncio.to_thread(_run_alarm, seconds, volume)
-            return f"Alarm played for {seconds} seconds at {volume}% volume."
+            return await asyncio.to_thread(_run_alarm, seconds, volume)
         except Exception as e:
             return f"Failed to play alarm: {str(e)}"
