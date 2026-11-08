@@ -13,7 +13,9 @@ from src.core.commands import Command
 
 DEFAULT_SECONDS = 5
 MAX_SECONDS = 60
+DEFAULT_VOLUME = 100
 
+VK_VOLUME_DOWN = 0xAE
 VK_VOLUME_UP = 0xAF
 KEYEVENTF_KEYUP = 0x0002
 
@@ -33,7 +35,7 @@ def _make_siren_wav(path: str, seconds: int) -> None:
         w.writeframes(samples.tobytes())
 
 
-def _volume_via_pycaw() -> None:
+def _volume_via_pycaw(volume: int) -> None:
     import comtypes
     from comtypes import CLSCTX_ALL
     from ctypes import POINTER, cast
@@ -48,29 +50,34 @@ def _volume_via_pycaw() -> None:
             interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             endpoint = cast(interface, POINTER(IAudioEndpointVolume))
         endpoint.SetMute(0, None)
-        endpoint.SetMasterVolumeLevelScalar(1.0, None)
+        endpoint.SetMasterVolumeLevelScalar(volume / 100.0, None)
     finally:
         comtypes.CoUninitialize()
 
 
-def _volume_via_keys() -> None:
-    """Fallback without dependencies: volume-up presses unmute and raise volume."""
+def _press(vk: int, times: int) -> None:
     user32 = ctypes.windll.user32
-    for _ in range(55):  # 50 presses = 100%, a few extra to be safe
-        user32.keybd_event(VK_VOLUME_UP, 0, 0, 0)
-        user32.keybd_event(VK_VOLUME_UP, 0, KEYEVENTF_KEYUP, 0)
+    for _ in range(times):
+        user32.keybd_event(vk, 0, 0, 0)
+        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
         time.sleep(0.01)
 
 
-def _set_max_volume() -> None:
+def _volume_via_keys(volume: int) -> None:
+    """Fallback without dependencies. Each key press changes volume by 2%."""
+    _press(VK_VOLUME_DOWN, 55)  # go to 0 first
+    _press(VK_VOLUME_UP, max(1, round(volume / 2)))  # also unmutes
+
+
+def _set_volume(volume: int) -> None:
     try:
-        _volume_via_pycaw()
+        _volume_via_pycaw(volume)
     except Exception:
-        _volume_via_keys()
+        _volume_via_keys(volume)
 
 
-def _run_alarm(seconds: int) -> None:
-    _set_max_volume()
+def _run_alarm(seconds: int, volume: int) -> None:
+    _set_volume(volume)
     fd, path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
@@ -83,6 +90,17 @@ def _run_alarm(seconds: int) -> None:
             pass
 
 
+def _parse_args(args: list[str]) -> tuple[int, int] | None:
+    """Returns (seconds, volume) or None if invalid."""
+    if len(args) > 2 or not all(a.isdigit() for a in args):
+        return None
+    seconds = int(args[0]) if len(args) >= 1 else DEFAULT_SECONDS
+    volume = int(args[1]) if len(args) == 2 else DEFAULT_VOLUME
+    if not (1 <= seconds <= MAX_SECONDS and 1 <= volume <= 100):
+        return None
+    return seconds, volume
+
+
 class AlarmCommand(Command):
 
     @classmethod
@@ -91,7 +109,10 @@ class AlarmCommand(Command):
 
     @classmethod
     def description(cls) -> str:
-        return "Unmute, set volume to 100% and play a loud siren (default 5 seconds)"
+        return (
+            "Unmute and play a loud siren. "
+            "Usage: alarm [seconds=5] [volume=100]"
+        )
 
     @classmethod
     def is_server_side(cls) -> bool:
@@ -99,11 +120,7 @@ class AlarmCommand(Command):
 
     @classmethod
     def validate_args(cls, args: list[str]) -> bool:
-        if len(args) == 0:
-            return True
-        if len(args) == 1 and args[0].isdigit():
-            return 1 <= int(args[0]) <= MAX_SECONDS
-        return False
+        return _parse_args(args) is not None
 
     @classmethod
     def to_json(cls, args: list[str]) -> str:
@@ -114,9 +131,12 @@ class AlarmCommand(Command):
 
     @classmethod
     async def execute(cls, args: list[str], server=None) -> str:
-        seconds = int(args[0]) if args else DEFAULT_SECONDS
+        parsed = _parse_args(args)
+        if parsed is None:
+            return "Usage: alarm [seconds 1-60] [volume 1-100]"
+        seconds, volume = parsed
         try:
-            await asyncio.to_thread(_run_alarm, seconds)
-            return f"Alarm played for {seconds} seconds."
+            await asyncio.to_thread(_run_alarm, seconds, volume)
+            return f"Alarm played for {seconds} seconds at {volume}% volume."
         except Exception as e:
             return f"Failed to play alarm: {str(e)}"
