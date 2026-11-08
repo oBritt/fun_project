@@ -10,6 +10,7 @@ from .CloseCommand import CloseCommand
 from .UpdateCommand import UpdateCommand
 from .HackerCommand import HackerCommand
 from .ShutdownCommand import ShutdownCommand
+from .AlarmCommand import AlarmCommand
 
 commands_dict: dict[str, Command] = {
     HelpCommand.name(): HelpCommand,
@@ -23,6 +24,7 @@ commands_dict: dict[str, Command] = {
     HackerCommand.name(): HackerCommand,
     SayCommand.name(): SayCommand,
     ShutdownCommand.name(): ShutdownCommand,
+    AlarmCommand.name(): AlarmCommand
 }
 
 __all__ = [
